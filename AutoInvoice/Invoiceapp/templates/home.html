@@ -1,0 +1,155 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice Data Extraction</title>
+    <link rel="stylesheet" href="{% static 'css/home.css' %}">
+</head>
+<body>
+
+<div class="page-wrapper">
+    <div class="main-layout">
+
+        <!-- LEFT PANEL -->
+        <div class="left-panel">
+            <div class="card">
+                <h1>Invoice Data Extraction</h1>
+                <p class="subtext">
+                    Upload invoice files and generate structured JSON output for processing.
+                </p>
+
+                {% if error %}
+                <div class="error-box">
+                    {{ error }}
+                </div>
+                {% endif %}
+
+                <form method="POST" enctype="multipart/form-data">
+                    {% csrf_token %}
+
+                    <div class="form-group">
+                        <label for="batch_name">
+                            Batch Name <span class="required">*</span>
+                        </label>
+                        <input
+                            type="text"
+                            id="batch_name"
+                            name="batch_name"
+                            placeholder="Enter batch name"
+                            value="{{ batch_name_value|default:'' }}"
+                            required
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pdfFiles">Upload Invoice Files</label>
+                        <div class="upload-box">
+                            <input
+                                type="file"
+                                id="pdfFiles"
+                                name="pdfFiles"
+                                multiple
+                                accept="application/pdf,image/png,image/jpeg,image/jpg"
+                                required
+                            >
+                            <div class="upload-content">
+                                <h3>Select Invoice Files</h3>
+                                <p>Click here or drag and drop invoice files</p>
+                                <span>Supported formats: PDF, PNG, JPG, JPEG</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Selected Files</label>
+                        <div class="file-list-box" id="fileListBox">
+                            {% if selected_files %}
+                                <ul class="selected-files" id="fileList">
+                                    {% for file_name in selected_files %}
+                                        <li>
+                                            <span>{{ forloop.counter }}. {{ file_name }}</span>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            {% else %}
+                                <p class="empty-text">No files selected</p>
+                                <ul id="fileList"></ul>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <button type="submit" class="process-btn">
+                            Extract Invoice Data
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- RIGHT PANEL -->
+        <div class="right-panel">
+            <div class="card result-card">
+                <h2>JSON Result</h2>
+                <p class="result-subtext">
+                    Structured invoice JSON output will appear here.
+                </p>
+
+                {% if results %}
+                    {% for item in results %}
+                        <div class="result-section">
+                            <h3>{{ item.file_name }}</h3>
+
+                            <div class="result-sub-block">
+                                <h4>Structured JSON Output</h4>
+                                <div class="result-box">
+                                    <pre>{{ item.json_result }}</pre>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="result-placeholder">
+                        <div class="placeholder-icon">📄</div>
+                        <h3>No Result Yet</h3>
+                        <p>
+                            Upload invoice files and click <strong>Extract Invoice Data</strong>
+                            to view the structured JSON output here.
+                        </p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    const pdfInput = document.getElementById("pdfFiles");
+    const fileListBox = document.getElementById("fileListBox");
+
+    pdfInput.addEventListener("change", function () {
+        if (this.files.length === 0) {
+            fileListBox.innerHTML = '<p class="empty-text">No files selected</p><ul id="fileList"></ul>';
+            return;
+        }
+
+        const ul = document.createElement("ul");
+        ul.className = "selected-files";
+        ul.id = "fileList";
+
+        Array.from(this.files).forEach((file, index) => {
+            const li = document.createElement("li");
+            li.innerHTML = `<span>${index + 1}. ${file.name}</span><small>${(file.size / 1024).toFixed(2)} KB</small>`;
+            ul.appendChild(li);
+        });
+
+        fileListBox.innerHTML = "";
+        fileListBox.appendChild(ul);
+    });
+</script>
+
+</body>
+</html>

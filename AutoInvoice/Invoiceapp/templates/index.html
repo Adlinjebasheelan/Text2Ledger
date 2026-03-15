@@ -1,0 +1,21 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Auto Invoice System</title>
+    <link rel="stylesheet" href="{% static 'css/index.css' %}">
+</head>
+<body>
+
+<div class="container">
+    <h1>Auto Invoice Extraction System</h1>
+    <p>
+        Upload invoice PDFs, extract data using OCR, transform it into structured JSON
+        with AI, and store it in your database automatically.
+    </p>
+
+    <a href="{% url 'home' %}" class="btn">Start Processing</a>
+</div>
+
+</body>
+</html>
