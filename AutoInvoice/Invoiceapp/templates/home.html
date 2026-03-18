@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Invoice Data Extraction</title>
     <link rel="stylesheet" href="{% static 'css/home.css' %}">
 </head>
@@ -29,27 +30,24 @@
                 <form method="POST" enctype="multipart/form-data">
                     {% csrf_token %}
 
-                    <!-- TYPE PICKLIST -->
                     <div class="form-group">
                         <label>Type <span class="required">*</span></label>
 
                         <div class="type-selector">
-
                             <label class="type-option">
-                                <input type="radio" name="doc_type" value="Invoice" checked>
+                                <input type="radio" name="doc_type" value="Invoice"
+                                       {% if selected_doc_type != "Sales Order" %}checked{% endif %}>
                                 <span>Invoice</span>
                             </label>
 
                             <label class="type-option">
-                                <input type="radio" name="doc_type" value="Sales Order">
+                                <input type="radio" name="doc_type" value="Sales Order"
+                                       {% if selected_doc_type == "Sales Order" %}checked{% endif %}>
                                 <span>Sales Order</span>
                             </label>
-
                         </div>
-
                     </div>
 
-                    <!-- FILE UPLOAD -->
                     <div class="form-group">
                         <label for="pdfFiles">Upload Documents</label>
 
@@ -71,114 +69,311 @@
                         </div>
                     </div>
 
-                    <!-- SELECTED FILE LIST -->
                     <div class="form-group">
                         <label>Selected Files</label>
 
                         <div class="file-list-box" id="fileListBox">
-
                             {% if selected_files %}
-                            <ul class="selected-files">
-                                {% for file_name in selected_files %}
-                                <li>
-                                    <span>{{ forloop.counter }}. {{ file_name }}</span>
-                                </li>
-                                {% endfor %}
-                            </ul>
+                                <ul class="selected-files">
+                                    {% for file_name in selected_files %}
+                                    <li>
+                                        <span>{{ forloop.counter }}. {{ file_name }}</span>
+                                    </li>
+                                    {% endfor %}
+                                </ul>
                             {% else %}
-                            <p class="empty-text">No files selected</p>
+                                <p class="empty-text">No files selected</p>
                             {% endif %}
-
                         </div>
                     </div>
 
-                    <!-- BUTTON -->
-                    <div class="form-group">
+                    <div class="form-group action-buttons">
                         <button type="submit" class="process-btn">
                             Extract Data
                         </button>
+
+                        <button
+                            type="button"
+                            id="downloadCsvBtn"
+                            class="download-btn"
+                            {% if not formatted_json %}disabled{% endif %}
+                            onclick="downloadCsvFromJson()">
+                            Download CSV
+                        </button>
                     </div>
-
                 </form>
-
             </div>
         </div>
 
         <!-- RIGHT PANEL -->
         <div class="right-panel">
             <div class="card result-card">
-
-                <h2>JSON Result</h2>
-                <p class="result-subtext">
-                    Structured extraction output will appear here.
-                </p>
-
-                {% if results %}
-                    {% for item in results %}
-
-                        <div class="result-section">
-
-                            <h3>{{ item.file_name }}</h3>
-
-                            <div class="result-box">
-                                <pre>{{ item.json_result }}</pre>
-                            </div>
-
-                        </div>
-
-                    {% endfor %}
-                {% else %}
-
-                <div class="result-placeholder">
-                    <div class="placeholder-icon">📄</div>
-                    <h3>No Result Yet</h3>
-                    <p>
-                        Upload documents and click
-                        <strong>Extract Data</strong> to view JSON output.
+                <div class="result-header">
+                    <h2>JSON Result</h2>
+                    <p class="result-subtext">
+                        Structured extraction output will appear here.
                     </p>
                 </div>
 
-                {% endif %}
+                {% if formatted_json %}
+                    <div class="json-file-block">
+                        <div class="json-topbar">
+                            <div class="json-topbar-left">
+                                <div class="editor-dots">
+                                    <span class="dot red"></span>
+                                    <span class="dot yellow"></span>
+                                    <span class="dot green"></span>
+                                </div>
+                            </div>
 
+                            <div class="json-topbar-right">
+                                <span class="json-label">JSON Array</span>
+                                <button
+                                    type="button"
+                                    class="copy-btn"
+                                    onclick="copyJson('json-data-main', this)">
+                                    Copy
+                                </button>
+                            </div>
+                        </div>
+
+                        <script type="application/json" id="json-data-main">
+{{ formatted_json|safe }}
+                        </script>
+
+                        <div class="json-viewer" id="json-viewer-main"></div>
+                    </div>
+                {% else %}
+                    <div class="result-placeholder">
+                        <div class="placeholder-icon">{ }</div>
+                        <h3>No Result Yet</h3>
+                        <p>
+                            Upload documents and click
+                            <strong>Extract Data</strong> to view JSON output.
+                        </p>
+                    </div>
+
+                    <script type="application/json" id="json-data-main">[]</script>
+                {% endif %}
             </div>
         </div>
 
     </div>
 </div>
 
-
 <script>
-
 const pdfInput = document.getElementById("pdfFiles");
 const fileListBox = document.getElementById("fileListBox");
 
-pdfInput.addEventListener("change", function () {
+if (pdfInput) {
+    pdfInput.addEventListener("change", function () {
+        if (this.files.length === 0) {
+            fileListBox.innerHTML = '<p class="empty-text">No files selected</p>';
+            return;
+        }
 
-    if (this.files.length === 0) {
-        fileListBox.innerHTML = '<p class="empty-text">No files selected</p>';
+        const ul = document.createElement("ul");
+        ul.className = "selected-files";
+
+        Array.from(this.files).forEach((file, index) => {
+            const li = document.createElement("li");
+            li.innerHTML = `<span>${index + 1}. ${file.name}</span>`;
+            ul.appendChild(li);
+        });
+
+        fileListBox.innerHTML = "";
+        fileListBox.appendChild(ul);
+    });
+}
+
+function escapeHtml(text) {
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+
+function syntaxHighlightJsonLine(line) {
+    let escaped = escapeHtml(line);
+
+    escaped = escaped.replace(
+        /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*")(\s*:)?/g,
+        function(match, p1, p2) {
+            if (p2) {
+                return `<span class="json-key">${p1}</span><span class="json-colon">:</span>`;
+            }
+            return `<span class="json-string">${p1}</span>`;
+        }
+    );
+
+    escaped = escaped.replace(
+        /\b(true|false)\b/g,
+        '<span class="json-boolean">$1</span>'
+    );
+
+    escaped = escaped.replace(
+        /\bnull\b/g,
+        '<span class="json-null">null</span>'
+    );
+
+    escaped = escaped.replace(
+        /(-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?)/g,
+        '<span class="json-number">$1</span>'
+    );
+
+    escaped = escaped.replace(/([{}[\]])/g, '<span class="json-brace">$1</span>');
+
+    return escaped;
+}
+
+function renderJsonViewer(scriptId, viewerId) {
+    const scriptEl = document.getElementById(scriptId);
+    const viewerEl = document.getElementById(viewerId);
+
+    if (!scriptEl || !viewerEl) return;
+
+    const rawJson = scriptEl.textContent.trim();
+    if (!rawJson) return;
+
+    const lines = rawJson.split("\n");
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "json-editor-shell";
+
+    const gutter = document.createElement("div");
+    gutter.className = "json-gutter";
+
+    const code = document.createElement("div");
+    code.className = "json-code";
+
+    lines.forEach((line, index) => {
+        const lineNo = document.createElement("div");
+        lineNo.className = "json-line-number";
+        lineNo.textContent = index + 1;
+        gutter.appendChild(lineNo);
+
+        const codeLine = document.createElement("div");
+        codeLine.className = "json-code-line";
+        codeLine.innerHTML = syntaxHighlightJsonLine(line || " ");
+        code.appendChild(codeLine);
+    });
+
+    wrapper.appendChild(gutter);
+    wrapper.appendChild(code);
+    viewerEl.innerHTML = "";
+    viewerEl.appendChild(wrapper);
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+    const viewer = document.getElementById("json-viewer-main");
+    if (viewer) {
+        renderJsonViewer("json-data-main", "json-viewer-main");
+    }
+});
+
+function copyJson(scriptId, btn) {
+    const scriptEl = document.getElementById(scriptId);
+    if (!scriptEl) return;
+
+    const rawJson = scriptEl.textContent.trim();
+
+    navigator.clipboard.writeText(rawJson).then(() => {
+        const oldText = btn.textContent;
+        btn.textContent = "Copied";
+        btn.disabled = true;
+
+        setTimeout(() => {
+            btn.textContent = oldText;
+            btn.disabled = false;
+        }, 1500);
+    });
+}
+
+function flattenObject(obj, parentKey = "", result = {}) {
+    for (const key in obj) {
+        if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
+
+        const newKey = parentKey ? `${parentKey}.${key}` : key;
+        const value = obj[key];
+
+        if (Array.isArray(value)) {
+            if (
+                value.length > 0 &&
+                typeof value[0] === "object" &&
+                value[0] !== null
+            ) {
+                result[newKey] = JSON.stringify(value);
+            } else {
+                result[newKey] = value.join(" | ");
+            }
+        } else if (value !== null && typeof value === "object") {
+            flattenObject(value, newKey, result);
+        } else {
+            result[newKey] = value;
+        }
+    }
+
+    return result;
+}
+
+function convertJsonArrayToCsv(jsonArray) {
+    if (!Array.isArray(jsonArray) || jsonArray.length === 0) {
+        return "";
+    }
+
+    const flattenedRows = jsonArray.map(item => flattenObject(item));
+    const headers = [...new Set(flattenedRows.flatMap(row => Object.keys(row)))];
+
+    const escapeCsvValue = (value) => {
+        if (value === null || value === undefined) return '""';
+        const stringValue = String(value).replace(/"/g, '""');
+        return `"${stringValue}"`;
+    };
+
+    const csvRows = [];
+    csvRows.push(headers.map(escapeCsvValue).join(","));
+
+    flattenedRows.forEach(row => {
+        const values = headers.map(header => escapeCsvValue(row[header] ?? ""));
+        csvRows.push(values.join(","));
+    });
+
+    return csvRows.join("\n");
+}
+
+function downloadCsvFromJson() {
+    const scriptEl = document.getElementById("json-data-main");
+    if (!scriptEl) return;
+
+    const rawJson = scriptEl.textContent.trim();
+    if (!rawJson || rawJson === "[]") return;
+
+    let parsedJson;
+    try {
+        parsedJson = JSON.parse(rawJson);
+    } catch (error) {
+        alert("Invalid JSON data. CSV download failed.");
         return;
     }
 
-    const ul = document.createElement("ul");
-    ul.className = "selected-files";
+    const csvContent = convertJsonArrayToCsv(parsedJson);
+    if (!csvContent) {
+        alert("No data available to export.");
+        return;
+    }
 
-    Array.from(this.files).forEach((file, index) => {
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
 
-        const li = document.createElement("li");
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "invoice_data.csv";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 
-        li.innerHTML =
-        `<span>${index + 1}. ${file.name}</span>
-        <small>${(file.size / 1024).toFixed(2)} KB</small>`;
-
-        ul.appendChild(li);
-
-    });
-
-    fileListBox.innerHTML = "";
-    fileListBox.appendChild(ul);
-
-});
-
+    URL.revokeObjectURL(url);
+}
 </script>
 
 </body>

@@ -9,19 +9,19 @@ def landing_page(request):
 
 
 def home(request):
-    if request.method == "POST":
-        batch_name = request.POST.get("batch_name", "").strip()
-        uploaded_files = request.FILES.getlist("pdfFiles")
+    context = {
+        "selected_doc_type": "Invoice"
+    }
 
-        if not batch_name:
-            return render(request, "home.html", {
-                "error": "Batch Name is required."
-            })
+    if request.method == "POST":
+        uploaded_files = request.FILES.getlist("pdfFiles")
+        doc_type = request.POST.get("doc_type", "Invoice").strip()
+
+        context["selected_doc_type"] = doc_type
 
         if not uploaded_files:
-            return render(request, "home.html", {
-                "error": "Please upload at least one file."
-            })
+            context["error"] = "Please upload at least one file."
+            return render(request, "home.html", context)
 
         try:
             selected_files = []
@@ -33,23 +33,15 @@ def home(request):
                 ocr_text = extract_text_from_file(uploaded_file)
                 json_result = convert_ocr_to_json(ocr_text, uploaded_file.name)
 
-                # THIS LINE IS THE IMPORTANT FIX
-                formatted_json = json.dumps(json_result, indent=4, ensure_ascii=False)
+                results.append(json_result)
 
-                results.append({
-                    "file_name": uploaded_file.name,
-                    "json_result": formatted_json
-                })
+            formatted_json = json.dumps(results, indent=4, ensure_ascii=False)
 
-            return render(request, "home.html", {
-                "batch_name_value": batch_name,
-                "selected_files": selected_files,
-                "results": results
-            })
+            context["selected_files"] = selected_files
+            context["results"] = results
+            context["formatted_json"] = formatted_json
 
         except Exception as e:
-            return render(request, "home.html", {
-                "error": f"Error during processing: {str(e)}"
-            })
+            context["error"] = f"Error during processing: {str(e)}"
 
-    return render(request, "home.html")
+    return render(request, "home.html", context)
