@@ -181,23 +181,6 @@ label {
     margin-bottom: 0;
 }
 
-.process-btn {
-    width: 100%;
-    background: #2563eb;
-    color: white;
-    border: none;
-    border-radius: 10px;
-    padding: 15px;
-    font-size: 16px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: background 0.2s ease;
-}
-
-.process-btn:hover {
-    background: #1d4ed8;
-}
-
 .error-box {
     background: #fee2e2;
     color: #991b1b;
@@ -362,37 +345,6 @@ label {
     white-space: pre;
 }
 
-.json-key {
-    color: #93c5fd;
-}
-
-.json-string {
-    color: #86efac;
-}
-
-.json-number {
-    color: #fca5a5;
-}
-
-.json-boolean {
-    color: #c4b5fd;
-    font-weight: 600;
-}
-
-.json-null {
-    color: #f9a8d4;
-    font-weight: 600;
-}
-
-.json-brace {
-    color: #e2e8f0;
-    font-weight: 700;
-}
-
-.json-colon {
-    color: #cbd5e1;
-}
-
 .result-placeholder {
     min-height: 520px;
     border: 2px dashed #cbd5e1;
@@ -448,67 +400,6 @@ label {
     background: #64748b;
 }
 
-@media (max-width: 1100px) {
-    .main-layout {
-        flex-direction: column;
-    }
-
-    .result-card {
-        min-height: auto;
-    }
-
-    .json-viewer {
-        height: 420px;
-        max-height: 420px;
-    }
-
-    .json-topbar {
-        flex-direction: row;
-        align-items: center;
-    }
-}
-
-.action-buttons {
-    display: flex;
-    gap: 12px;
-}
-
-.process-btn,
-.download-btn {
-    width: 100%;
-    border: none;
-    border-radius: 10px;
-    padding: 15px;
-    font-size: 16px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.process-btn {
-    background: #2563eb;
-    color: white;
-}
-
-.process-btn:hover {
-    background: #1d4ed8;
-}
-
-.download-btn {
-    background: #0f172a;
-    color: #ffffff;
-}
-
-.download-btn:hover:not(:disabled) {
-    background: #1e293b;
-}
-
-.download-btn:disabled {
-    background: #cbd5e1;
-    color: #64748b;
-    cursor: not-allowed;
-    opacity: 0.9;
-}
 .action-buttons {
     display: flex;
     gap: 12px;
@@ -516,8 +407,7 @@ label {
 }
 
 .connection-btn,
-.process-btn,
-.download-btn {
+.process-btn {
     border: none;
     border-radius: 10px;
     padding: 15px 18px;
@@ -545,29 +435,230 @@ label {
     transform: scale(0.98);
 }
 
+.connected-btn {
+    background: linear-gradient(135deg, #16a34a, #22c55e) !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 10px rgba(34, 197, 94, 0.28) !important;
+}
+
 .process-btn {
     flex: 1;
     background: #2563eb;
     color: white;
 }
 
-.process-btn:hover {
+.process-btn:hover:not(:disabled) {
     background: #1d4ed8;
 }
 
-.download-btn {
-    flex: 1;
-    background: #0f172a;
-    color: #ffffff;
-}
-
-.download-btn:hover:not(:disabled) {
-    background: #1e293b;
-}
-
-.download-btn:disabled {
+.process-btn:disabled {
     background: #cbd5e1;
     color: #64748b;
     cursor: not-allowed;
-    opacity: 0.9;
+    box-shadow: none;
+}
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 20px;
+}
+
+.modal-overlay.show {
+    display: flex;
+}
+
+.modal-box {
+    width: 100%;
+    max-width: 560px;
+    background: #ffffff;
+    border-radius: 16px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
+    overflow: hidden;
+    animation: modalFadeIn 0.2s ease;
+}
+
+@keyframes modalFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 22px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    color: #111827;
+}
+
+.modal-close-btn {
+    border: none;
+    background: transparent;
+    font-size: 28px;
+    line-height: 1;
+    cursor: pointer;
+    color: #6b7280;
+}
+
+.modal-close-btn:hover {
+    color: #111827;
+}
+
+.modal-body {
+    padding: 22px;
+}
+
+.modal-input,
+.modal-textarea {
+    width: 100%;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 14px;
+    color: #111827;
+    background: #ffffff;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.modal-input:focus,
+.modal-textarea:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.modal-textarea {
+    min-height: 110px;
+    resize: vertical;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 18px 22px;
+    border-top: 1px solid #e5e7eb;
+    background: #f9fafb;
+}
+
+.modal-reset-btn,
+.modal-connect-btn {
+    border: none;
+    border-radius: 10px;
+    padding: 12px 18px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.modal-reset-btn {
+    background: #e5e7eb;
+    color: #111827;
+}
+
+.modal-reset-btn:hover {
+    background: #d1d5db;
+}
+
+.modal-connect-btn {
+    background: #2563eb;
+    color: #ffffff;
+}
+
+.modal-connect-btn:hover {
+    background: #1d4ed8;
+}
+
+.modal-connect-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.connection-message {
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.connection-message.success {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #bbf7d0;
+}
+
+.connection-message.error {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+
+@media (max-width: 1100px) {
+    .main-layout {
+        flex-direction: column;
+    }
+
+    .result-card {
+        min-height: auto;
+    }
+
+    .json-viewer {
+        height: 420px;
+        max-height: 420px;
+    }
+
+    .json-topbar {
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .action-buttons {
+        flex-direction: column;
+    }
+}
+
+.summary-strip {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+}
+
+.summary-pill {
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: #e5e7eb;
+    color: #111827;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.success-pill {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.failed-pill {
+    background: #fee2e2;
+    color: #991b1b;
 }

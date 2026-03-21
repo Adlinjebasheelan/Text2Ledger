@@ -5,19 +5,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Invoice Data Extraction</title>
-    <link rel="stylesheet" href="{% static 'css/home.css' %}?v=2">
+    <link rel="stylesheet" href="{% static 'css/home.css' %}?v=7">
 </head>
 <body>
 
 <div class="page-wrapper">
     <div class="main-layout">
 
+        <!-- LEFT PANEL -->
         <div class="left-panel">
             <div class="card">
 
                 <h1>Invoice Data Extraction</h1>
                 <p class="subtext">
-                    Upload invoice documents and generate structured JSON output.
+                    Upload invoice documents and process each file one by one:
+                    OCR → JSON → Vendor → Bill.
                 </p>
 
                 {% if error %}
@@ -26,8 +28,16 @@
                 </div>
                 {% endif %}
 
-                <form method="POST" enctype="multipart/form-data">
+                <form method="POST" enctype="multipart/form-data" id="invoiceForm">
                     {% csrf_token %}
+
+                    <!-- hidden fields for connection -->
+                    <input type="hidden" name="accounts_base_url" id="hiddenAccountsBaseUrl">
+                    <input type="hidden" name="api_base_url" id="hiddenApiBaseUrl">
+                    <input type="hidden" name="client_id" id="hiddenClientId">
+                    <input type="hidden" name="client_secret" id="hiddenClientSecret">
+                    <input type="hidden" name="refresh_token" id="hiddenRefreshToken">
+                    <input type="hidden" name="organization_id" id="hiddenOrganizationId">
 
                     <div class="form-group">
                         <label>Type <span class="required">*</span></label>
@@ -86,35 +96,41 @@
                         </div>
                     </div>
 
+                    <div class="form-group">
+                        <div id="extractValidationMessage" class="connection-message error" style="display:block;">
+                            Please create and verify the connection first to enable Extract Data.
+                        </div>
+                    </div>
+
                     <div class="form-group action-buttons">
-                        <button type="button" class="connection-btn">
+                        <button type="button" class="connection-btn" id="openConnectionModal">
                             Create Connection
                         </button>
 
-                        <button type="submit" class="process-btn">
+                        <button type="submit" class="process-btn" id="extractDataBtn" disabled>
                             Extract Data
-                        </button>
-
-                        <button
-                            type="button"
-                            id="downloadCsvBtn"
-                            class="download-btn"
-                            {% if not formatted_json %}disabled{% endif %}
-                            onclick="downloadCsvFromJson()">
-                            Download CSV
                         </button>
                     </div>
                 </form>
             </div>
         </div>
 
+        <!-- RIGHT PANEL -->
         <div class="right-panel">
             <div class="card result-card">
                 <div class="result-header">
                     <h2>JSON Result</h2>
                     <p class="result-subtext">
-                        Structured extraction output will appear here.
+                        Each file is processed fully before the next one starts.
                     </p>
+
+                    {% if results %}
+                    <div class="summary-strip">
+                        <div class="summary-pill">Total: {{ results|length }}</div>
+                        <div class="summary-pill success-pill">Success: {{ success_count }}</div>
+                        <div class="summary-pill failed-pill">Failed: {{ failed_count }}</div>
+                    </div>
+                    {% endif %}
                 </div>
 
                 {% if formatted_json %}
@@ -151,7 +167,7 @@
                         <h3>No Result Yet</h3>
                         <p>
                             Upload documents and click
-                            <strong>Extract Data</strong> to view JSON output.
+                            <strong>Extract Data</strong> to process them one by one.
                         </p>
                     </div>
 
@@ -163,9 +179,67 @@
     </div>
 </div>
 
+<!-- CONNECTION MODAL -->
+<div class="modal-overlay" id="connectionModal">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3>Create Connection</h3>
+            <button type="button" class="modal-close-btn" id="closeConnectionModal">&times;</button>
+        </div>
+
+        <div class="modal-body">
+            <div id="connectionMessage" class="connection-message" style="display:none;"></div>
+
+            <div class="form-group">
+                <label for="baseUrl">Accounts Base URL</label>
+                <input type="text" id="baseUrl" class="modal-input" placeholder="https://accounts.zoho.in">
+            </div>
+
+            <div class="form-group">
+                <label for="apiBaseUrl">API Base URL</label>
+                <input type="text" id="apiBaseUrl" class="modal-input" placeholder="https://www.zohoapis.in">
+            </div>
+
+            <div class="form-group">
+                <label for="scope">Scope</label>
+                <input type="text" id="scope" class="modal-input" placeholder="ZohoBooks.fullaccess.all">
+            </div>
+
+            <div class="form-group">
+                <label for="clientId">Client ID</label>
+                <input type="text" id="clientId" class="modal-input" placeholder="Enter client ID">
+            </div>
+
+            <div class="form-group">
+                <label for="clientSecret">Client Secret</label>
+                <input type="password" id="clientSecret" class="modal-input" placeholder="Enter client secret">
+            </div>
+
+            <div class="form-group">
+                <label for="refreshToken">Refresh Token</label>
+                <textarea id="refreshToken" class="modal-textarea" placeholder="Enter refresh token"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="organizationId">Organization ID</label>
+                <input type="text" id="organizationId" class="modal-input" placeholder="Enter organization ID">
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button type="button" class="modal-reset-btn" id="resetConnectionForm">Reset</button>
+            <button type="button" class="modal-connect-btn" id="connectBtn">Connect</button>
+        </div>
+    </div>
+</div>
+
 <script>
 const pdfInput = document.getElementById("pdfFiles");
 const fileListBox = document.getElementById("fileListBox");
+const extractDataBtn = document.getElementById("extractDataBtn");
+const extractValidationMessage = document.getElementById("extractValidationMessage");
+const openConnectionModal = document.getElementById("openConnectionModal");
+const invoiceForm = document.getElementById("invoiceForm");
 
 if (pdfInput) {
     pdfInput.addEventListener("change", function () {
@@ -188,6 +262,84 @@ if (pdfInput) {
     });
 }
 
+function escapeHtml(text) {
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+
+function syntaxHighlightJsonLine(line) {
+    let escaped = escapeHtml(line);
+
+    escaped = escaped.replace(
+        /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*")(\s*:)?/g,
+        function(match, p1, p2) {
+            if (p2) {
+                return `<span class="json-key">${p1}</span><span class="json-colon">:</span>`;
+            }
+            return `<span class="json-string">${p1}</span>`;
+        }
+    );
+
+    escaped = escaped.replace(
+        /\b(true|false)\b/g,
+        '<span class="json-boolean">$1</span>'
+    );
+
+    escaped = escaped.replace(
+        /\bnull\b/g,
+        '<span class="json-null">null</span>'
+    );
+
+    escaped = escaped.replace(
+        /(-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?)/g,
+        '<span class="json-number">$1</span>'
+    );
+
+    escaped = escaped.replace(/([{}[\]])/g, '<span class="json-brace">$1</span>');
+
+    return escaped;
+}
+
+function renderJsonViewer(scriptId, viewerId) {
+    const scriptEl = document.getElementById(scriptId);
+    const viewerEl = document.getElementById(viewerId);
+
+    if (!scriptEl || !viewerEl) return;
+
+    const rawJson = scriptEl.textContent.trim();
+    if (!rawJson) return;
+
+    const lines = rawJson.split("\n");
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "json-editor-shell";
+
+    const gutter = document.createElement("div");
+    gutter.className = "json-gutter";
+
+    const code = document.createElement("div");
+    code.className = "json-code";
+
+    lines.forEach((line, index) => {
+        const lineNo = document.createElement("div");
+        lineNo.className = "json-line-number";
+        lineNo.textContent = index + 1;
+        gutter.appendChild(lineNo);
+
+        const codeLine = document.createElement("div");
+        codeLine.className = "json-code-line";
+        codeLine.innerHTML = syntaxHighlightJsonLine(line || " ");
+        code.appendChild(codeLine);
+    });
+
+    wrapper.appendChild(gutter);
+    wrapper.appendChild(code);
+    viewerEl.innerHTML = "";
+    viewerEl.appendChild(wrapper);
+}
+
 function copyJson(scriptId, btn) {
     const scriptEl = document.getElementById(scriptId);
     if (!scriptEl) return;
@@ -206,32 +358,256 @@ function copyJson(scriptId, btn) {
     });
 }
 
-function downloadCsvFromJson() {
-    const scriptEl = document.getElementById("json-data-main");
-    if (!scriptEl) return;
+document.addEventListener("DOMContentLoaded", function () {
+    const viewer = document.getElementById("json-viewer-main");
+    if (viewer) {
+        renderJsonViewer("json-data-main", "json-viewer-main");
+    }
 
-    const rawJson = scriptEl.textContent.trim();
-    if (!rawJson || rawJson === "[]") return;
+    const savedConnected = localStorage.getItem("zoho_connection_verified");
+    if (savedConnected === "true") {
+        setConnectionVerifiedUI();
+        loadConnectionFormFromLocal();
+        syncConnectionValuesToHiddenFields();
+    }
+});
 
-    let parsedJson;
+// MODAL
+const connectionModal = document.getElementById("connectionModal");
+const closeConnectionModal = document.getElementById("closeConnectionModal");
+const resetConnectionFormBtn = document.getElementById("resetConnectionForm");
+const connectBtn = document.getElementById("connectBtn");
+const connectionMessage = document.getElementById("connectionMessage");
+
+const baseUrlInput = document.getElementById("baseUrl");
+const apiBaseUrlInput = document.getElementById("apiBaseUrl");
+const scopeInput = document.getElementById("scope");
+const clientIdInput = document.getElementById("clientId");
+const clientSecretInput = document.getElementById("clientSecret");
+const refreshTokenInput = document.getElementById("refreshToken");
+const organizationIdInput = document.getElementById("organizationId");
+
+const hiddenAccountsBaseUrl = document.getElementById("hiddenAccountsBaseUrl");
+const hiddenApiBaseUrl = document.getElementById("hiddenApiBaseUrl");
+const hiddenClientId = document.getElementById("hiddenClientId");
+const hiddenClientSecret = document.getElementById("hiddenClientSecret");
+const hiddenRefreshToken = document.getElementById("hiddenRefreshToken");
+const hiddenOrganizationId = document.getElementById("hiddenOrganizationId");
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== "") {
+        const cookies = document.cookie.split(";");
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + "=")) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+function showConnectionMessage(message, type = "error") {
+    connectionMessage.style.display = "block";
+    connectionMessage.className = "connection-message " + type;
+    connectionMessage.textContent = message;
+}
+
+function clearConnectionMessage() {
+    connectionMessage.style.display = "none";
+    connectionMessage.textContent = "";
+    connectionMessage.className = "connection-message";
+}
+
+function saveConnectionFormToLocal() {
+    const formData = {
+        accounts_base_url: baseUrlInput.value.trim(),
+        api_base_url: apiBaseUrlInput.value.trim(),
+        scope: scopeInput.value.trim(),
+        client_id: clientIdInput.value.trim(),
+        client_secret: clientSecretInput.value.trim(),
+        refresh_token: refreshTokenInput.value.trim(),
+        organization_id: organizationIdInput.value.trim()
+    };
+    localStorage.setItem("zoho_connection_form", JSON.stringify(formData));
+}
+
+function loadConnectionFormFromLocal() {
+    const saved = localStorage.getItem("zoho_connection_form");
+    if (!saved) return;
+
     try {
-        parsedJson = JSON.parse(rawJson);
-    } catch {
-        alert("Invalid JSON data.");
+        const data = JSON.parse(saved);
+        baseUrlInput.value = data.accounts_base_url || "";
+        apiBaseUrlInput.value = data.api_base_url || "";
+        scopeInput.value = data.scope || "";
+        clientIdInput.value = data.client_id || "";
+        clientSecretInput.value = data.client_secret || "";
+        refreshTokenInput.value = data.refresh_token || "";
+        organizationIdInput.value = data.organization_id || "";
+    } catch (e) {
+        console.log("No saved connection form data");
+    }
+}
+
+function syncConnectionValuesToHiddenFields() {
+    hiddenAccountsBaseUrl.value = baseUrlInput.value.trim();
+    hiddenApiBaseUrl.value = apiBaseUrlInput.value.trim();
+    hiddenClientId.value = clientIdInput.value.trim();
+    hiddenClientSecret.value = clientSecretInput.value.trim();
+    hiddenRefreshToken.value = refreshTokenInput.value.trim();
+    hiddenOrganizationId.value = organizationIdInput.value.trim();
+}
+
+function resetConnectionForm() {
+    baseUrlInput.value = "";
+    apiBaseUrlInput.value = "";
+    scopeInput.value = "";
+    clientIdInput.value = "";
+    clientSecretInput.value = "";
+    refreshTokenInput.value = "";
+    organizationIdInput.value = "";
+
+    hiddenAccountsBaseUrl.value = "";
+    hiddenApiBaseUrl.value = "";
+    hiddenClientId.value = "";
+    hiddenClientSecret.value = "";
+    hiddenRefreshToken.value = "";
+    hiddenOrganizationId.value = "";
+
+    localStorage.removeItem("zoho_connection_form");
+    localStorage.removeItem("zoho_connection_verified");
+
+    openConnectionModal.textContent = "Create Connection";
+    openConnectionModal.classList.remove("connected-btn");
+
+    extractDataBtn.disabled = true;
+    extractValidationMessage.style.display = "block";
+
+    clearConnectionMessage();
+}
+
+function setConnectionVerifiedUI() {
+    openConnectionModal.textContent = "Connected";
+    openConnectionModal.classList.add("connected-btn");
+    extractDataBtn.disabled = false;
+    extractValidationMessage.style.display = "none";
+    localStorage.setItem("zoho_connection_verified", "true");
+}
+
+function openModal() {
+    clearConnectionMessage();
+    loadConnectionFormFromLocal();
+    connectionModal.classList.add("show");
+}
+
+function closeModal() {
+    connectionModal.classList.remove("show");
+}
+
+openConnectionModal.addEventListener("click", openModal);
+closeConnectionModal.addEventListener("click", closeModal);
+
+connectionModal.addEventListener("click", function (e) {
+    if (e.target === connectionModal) {
+        closeModal();
+    }
+});
+
+document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && connectionModal.classList.contains("show")) {
+        closeModal();
+    }
+});
+
+resetConnectionFormBtn.addEventListener("click", function () {
+    resetConnectionForm();
+});
+
+[
+    baseUrlInput,
+    apiBaseUrlInput,
+    scopeInput,
+    clientIdInput,
+    clientSecretInput,
+    refreshTokenInput,
+    organizationIdInput
+].forEach((field) => {
+    field.addEventListener("input", saveConnectionFormToLocal);
+});
+
+connectBtn.addEventListener("click", async function () {
+    const payload = {
+        accounts_base_url: baseUrlInput.value.trim(),
+        api_base_url: apiBaseUrlInput.value.trim(),
+        scope: scopeInput.value.trim(),
+        client_id: clientIdInput.value.trim(),
+        client_secret: clientSecretInput.value.trim(),
+        refresh_token: refreshTokenInput.value.trim(),
+        organization_id: organizationIdInput.value.trim()
+    };
+
+    if (
+        !payload.accounts_base_url ||
+        !payload.api_base_url ||
+        !payload.scope ||
+        !payload.client_id ||
+        !payload.client_secret ||
+        !payload.refresh_token ||
+        !payload.organization_id
+    ) {
+        showConnectionMessage("Please fill all fields.", "error");
         return;
     }
 
-    const csv = JSON.stringify(parsedJson);
-    const blob = new Blob([csv], { type: "text/csv" });
+    connectBtn.disabled = true;
+    connectBtn.textContent = "Connecting...";
+    clearConnectionMessage();
 
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = "invoice_data.csv";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(link.href);
-}
+    try {
+        const response = await fetch("/create-connection/", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCookie("csrftoken")
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            saveConnectionFormToLocal();
+            syncConnectionValuesToHiddenFields();
+            setConnectionVerifiedUI();
+            showConnectionMessage("Connection verified successfully.", "success");
+
+            setTimeout(() => {
+                closeModal();
+            }, 700);
+        } else {
+            localStorage.removeItem("zoho_connection_verified");
+            extractDataBtn.disabled = true;
+            extractValidationMessage.style.display = "block";
+            showConnectionMessage(result.message || "Connection failed.", "error");
+        }
+    } catch (error) {
+        localStorage.removeItem("zoho_connection_verified");
+        extractDataBtn.disabled = true;
+        extractValidationMessage.style.display = "block";
+        showConnectionMessage("Something went wrong while creating connection.", "error");
+    } finally {
+        connectBtn.disabled = false;
+        connectBtn.textContent = "Connect";
+    }
+});
+
+invoiceForm.addEventListener("submit", function () {
+    extractDataBtn.disabled = true;
+    extractDataBtn.textContent = "Processing One by One...";
+});
 </script>
 
 </body>
