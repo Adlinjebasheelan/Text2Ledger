@@ -15,7 +15,7 @@ from django.views.decorators.http import require_POST
 load_dotenv()
 
 DEFAULT_BILL_ACCOUNT_ID = os.getenv("DEFAULT_BILL_ACCOUNT_ID", "").strip()
-DEFAULT_BILL_TAX_ID = os.getenv("DEFAULT_BILL_TAX_ID", "").strip()
+COMPANY_GST_STATE_CODE = os.getenv("COMPANY_GST_STATE_CODE", "").strip()
 
 
 def landing_page(request):
@@ -208,6 +208,123 @@ def make_zoho_request(url, method="GET", access_token="", body=None):
         return {"message": str(e), "code": -1}
 
 
+def get_state_code_from_gst(gst_no):
+    """
+    GST first 2 digits = state code
+    Example: 33ABCDE1234F1ZS -> 33
+    """
+    if not gst_no:
+        return ""
+    gst_no = str(gst_no).strip()
+    if len(gst_no) >= 2 and gst_no[:2].isdigit():
+        return gst_no[:2]
+    return ""
+
+
+def detect_transaction_type(vendor_gst_no):
+    """
+    Returns:
+    - intra
+    - inter
+    - unknown
+    """
+    vendor_state_code = get_state_code_from_gst(vendor_gst_no)
+    company_state_code = str(COMPANY_GST_STATE_CODE or "").strip()
+
+    if not vendor_state_code or not company_state_code:
+        return "unknown"
+
+    if vendor_state_code == company_state_code:
+        return "intra"
+
+    return "inter"
+
+
+def fetch_tax_details(api_base_url, organization_id, access_token):
+    url = f"{api_base_url}/books/v3/settings/taxes?organization_id={organization_id}"
+    response_json = make_zoho_request(
+        url=url,
+        method="GET",
+        access_token=access_token
+    )
+
+    if response_json.get("code") not in [0, "0"]:
+        raise Exception(response_json.get("message", "Failed to fetch tax details"))
+
+    taxes = response_json.get("taxes", [])
+    if not isinstance(taxes, list):
+        return []
+
+    return taxes
+
+
+def find_matching_tax_ids(taxes, tax_percentage, transaction_type):
+    """
+    Dynamic tax selection:
+    intra -> use tax_group GST5/GST12/GST18/GST28
+    inter -> use IGST5/IGST12/IGST18/IGST28
+
+    Returns line_item_taxes format:
+    [{"tax_id": "..."}]
+    """
+    target_percentage = round(to_float(tax_percentage, 0), 2)
+
+    if target_percentage <= 0:
+        return []
+
+    # intra state: pick tax_group with matching percentage and tax_specification=intra
+    if transaction_type == "intra":
+        for tax in taxes:
+            if not isinstance(tax, dict):
+                continue
+
+            tax_id = str(tax.get("tax_id", "") or "").strip()
+            tax_type = str(tax.get("tax_type", "") or "").strip().lower()
+            tax_specification = str(tax.get("tax_specification", "") or "").strip().lower()
+            tax_percentage_value = round(to_float(tax.get("tax_percentage"), 0), 2)
+            is_inactive = bool(tax.get("is_inactive", False))
+
+            if is_inactive:
+                continue
+
+            if (
+                tax_id
+                and tax_type == "tax_group"
+                and tax_specification == "intra"
+                and tax_percentage_value == target_percentage
+            ):
+                return [{"tax_id": tax_id}]
+
+    # inter state: pick IGST tax with matching percentage and tax_specification=inter
+    if transaction_type == "inter":
+        for tax in taxes:
+            if not isinstance(tax, dict):
+                continue
+
+            tax_id = str(tax.get("tax_id", "") or "").strip()
+            tax_name = str(tax.get("tax_name", "") or "").strip().upper()
+            tax_type = str(tax.get("tax_type", "") or "").strip().lower()
+            tax_specific_type = str(tax.get("tax_specific_type", "") or "").strip().lower()
+            tax_specification = str(tax.get("tax_specification", "") or "").strip().lower()
+            tax_percentage_value = round(to_float(tax.get("tax_percentage"), 0), 2)
+            is_inactive = bool(tax.get("is_inactive", False))
+
+            if is_inactive:
+                continue
+
+            if (
+                tax_id
+                and tax_type == "tax"
+                and tax_specific_type == "igst"
+                and tax_specification == "inter"
+                and tax_percentage_value == target_percentage
+                and tax_name.startswith("IGST")
+            ):
+                return [{"tax_id": tax_id}]
+
+    return []
+
+
 def prepare_vendor_payload(extracted_data):
     if not isinstance(extracted_data, dict):
         extracted_data = {}
@@ -262,11 +379,21 @@ def prepare_vendor_payload(extracted_data):
     return clean_empty_values(payload)
 
 
-def clean_line_items_for_bill(line_items):
+def clean_line_items_for_bill(line_items, extracted_data=None, taxes=None):
     cleaned_items = []
 
     if not isinstance(line_items, list):
         return cleaned_items
+
+    extracted_data = extracted_data or {}
+    taxes = taxes or []
+
+    vendor_details = extracted_data.get("vendor_details", {})
+    if not isinstance(vendor_details, dict):
+        vendor_details = {}
+
+    vendor_gst_no = str(vendor_details.get("gst_no", "") or extracted_data.get("gst_no", "") or "").strip()
+    transaction_type = detect_transaction_type(vendor_gst_no)
 
     for index, item in enumerate(line_items, start=1):
         if not isinstance(item, dict):
@@ -285,49 +412,52 @@ def clean_line_items_for_bill(line_items):
         if not account_id:
             account_id = DEFAULT_BILL_ACCOUNT_ID
 
-        tax_id = str(item.get("tax_id", "") or "").strip()
-        if not tax_id:
-            tax_id = DEFAULT_BILL_TAX_ID
-
         cleaned_item = {
             "account_id": account_id,
             "description": description,
             "rate": rate,
             "quantity": quantity,
-            "tax_id": tax_id,
         }
+
+        tax_percentage = to_float(item.get("tax_percentage"), 0)
+        line_item_taxes = find_matching_tax_ids(
+            taxes=taxes,
+            tax_percentage=tax_percentage,
+            transaction_type=transaction_type
+        )
+
+        if line_item_taxes:
+            cleaned_item["line_item_taxes"] = line_item_taxes
 
         cleaned_item = clean_empty_values(cleaned_item)
 
-        if (
-            cleaned_item.get("account_id")
-            and cleaned_item.get("description")
-            and cleaned_item.get("tax_id")
-        ):
+        if cleaned_item.get("account_id") and cleaned_item.get("description"):
             cleaned_items.append(cleaned_item)
 
     return cleaned_items
 
 
-def prepare_bill_payload(extracted_data, vendor_id, source_file_name=""):
+def prepare_bill_payload(extracted_data, vendor_id, source_file_name="", taxes=None):
     """
     Minimal bill payload:
     - vendor_id
     - date
     - bill_number (optional)
     - reference_number (optional)
-    - line_items with account_id and tax_id
+    - line_items with account_id
+    - dynamic line_item_taxes from Zoho tax API
     """
     if not DEFAULT_BILL_ACCOUNT_ID:
         raise Exception("DEFAULT_BILL_ACCOUNT_ID is missing in .env file")
 
-    if not DEFAULT_BILL_TAX_ID:
-        raise Exception("DEFAULT_BILL_TAX_ID is missing in .env file")
-
     if not isinstance(extracted_data, dict):
         extracted_data = {}
 
-    line_items = clean_line_items_for_bill(extracted_data.get("line_items", []))
+    line_items = clean_line_items_for_bill(
+        extracted_data.get("line_items", []),
+        extracted_data=extracted_data,
+        taxes=taxes or []
+    )
 
     if not line_items:
         raise Exception(f"No valid line_items found for bill creation in file: {source_file_name}")
@@ -459,7 +589,7 @@ def create_bill_in_zoho(api_base_url, organization_id, access_token, bill_payloa
     return response_json
 
 
-def process_single_file(uploaded_file, api_base_url, organization_id, access_token):
+def process_single_file(uploaded_file, api_base_url, organization_id, access_token, taxes=None):
     file_result = {
         "file_name": uploaded_file.name,
         "status": "pending",
@@ -512,7 +642,8 @@ def process_single_file(uploaded_file, api_base_url, organization_id, access_tok
         bill_payload = prepare_bill_payload(
             extracted_data=extracted_json,
             vendor_id=vendor_id,
-            source_file_name=uploaded_file.name
+            source_file_name=uploaded_file.name,
+            taxes=taxes or []
         )
         file_result["bill_payload"] = bill_payload
 
@@ -574,6 +705,13 @@ def home(request):
                 refresh_token=refresh_token
             )
 
+            # Fetch taxes once and reuse for all files
+            taxes = fetch_tax_details(
+                api_base_url=api_base_url,
+                organization_id=organization_id,
+                access_token=access_token
+            )
+
             selected_files = [uploaded_file.name for uploaded_file in uploaded_files]
             processing_results = []
 
@@ -582,7 +720,8 @@ def home(request):
                     uploaded_file=uploaded_file,
                     api_base_url=api_base_url,
                     organization_id=organization_id,
-                    access_token=access_token
+                    access_token=access_token,
+                    taxes=taxes
                 )
                 processing_results.append(result)
 
@@ -628,10 +767,18 @@ def create_connection(request):
             refresh_token=refresh_token
         )
 
+        # Verify tax API also, because bill creation depends on it
+        taxes = fetch_tax_details(
+            api_base_url=api_base_url,
+            organization_id=organization_id,
+            access_token=access_token
+        )
+
         return JsonResponse({
             "success": True,
             "message": "Connection verified successfully.",
-            "has_access_token": bool(access_token)
+            "has_access_token": bool(access_token),
+            "tax_count": len(taxes)
         })
 
     except Exception as e:
